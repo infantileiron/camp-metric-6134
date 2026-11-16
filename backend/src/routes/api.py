@@ -1,13 +1,15 @@
 import os,json
 import redis
-from fastapi import APIRouter,Depends,HTTPException,Response
+from pydantic import ValidationError
+from fastapi import APIRouter,Depends,HTTPException,Response,Body
 from src.config.database import db
-from src.models.entities import User,Metric,Fact,Snapshot,Audit
-from src.schemas.business import Login,MetricInput,FactInput,RunInput,NoteInput
+from src.models.entities import User,Metric,Fact,Snapshot,Audit,Reconciliation
+from src.schemas.business import Login,MetricInput,FactInput,RunInput,NoteInput,ReconExportInput,ReconReturnRow
 from src.middlewares.auth import current,editor,admin
 from src.utils.security import verify,token
 from src.services.business import audit,dump
 from src.services.repository import save_metric,save_fact
+from src.services import reconciliation as recon
 from src.controllers import business as ensure
 router=APIRouter()
 @router.post('/auth/login')
@@ -72,3 +74,51 @@ def export(i:int,u=Depends(current),s=Depends(db)):
  return Response(json.dumps(dump(r),ensure_ascii=False,indent=2),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="camp-metric-{i}.json"'})
 @router.get('/audits')
 def audits(u=Depends(admin),s=Depends(db)):return [dump(r) for r in s.query(Audit).order_by(Audit.id.desc()).limit(100)]
+# ---------- 离线核对单：导出 / 回传 / 预览重核 / 应用 ----------
+@router.post('/reconciliations/export')
+def export_recon(data:ReconExportInput,u=Depends(current),s=Depends(db)):
+ flt=data.model_dump(mode='json')
+ env=recon.build_sheet(s,u,flt)
+ audit(s,u,'导出离线核对单 '+env['sheet_code'])
+ return Response(json.dumps(env,ensure_ascii=False,indent=2),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="camp-recon-{env["sheet_code"][:8]}.json"'})
+@router.get('/reconciliations')
+def list_recon(u=Depends(current),s=Depends(db)):
+ return [dump(r) for r in s.query(Reconciliation).order_by(Reconciliation.id.desc()).all()]
+@router.post('/reconciliations/upload')
+def upload_recon(env:dict=Body(...),u=Depends(editor),s=Depends(db)):
+ # 先按原始字节载荷验签，避免模型规范化改变签名依据
+ env=recon.verify_envelope(env)
+ # 再对回传行做白名单结构与取值校验（不改写 basis 原值依据）
+ rows=(env.get('returned') or {}).get('rows')
+ if not isinstance(rows,list) or not rows:raise HTTPException(400,'回传内容为空')
+ try:
+  env['returned']['rows']=[ReconReturnRow(**r).model_dump(mode='json') for r in rows]
+ except ValidationError as e:
+  msgs='；'.join('.'.join(map(str,x['loc']))+': '+x['msg'] for x in e.errors())
+  raise HTTPException(422,'回传行不符合白名单结构或取值约束：'+msgs)
+ existing=s.query(Reconciliation).filter_by(sheet_code=env['sheet_code']).first()
+ if existing:
+  # 同一核对单重复回传：幂等返回已存记录，不重复建单
+  return dump(existing)
+ preview=recon.merge_preview(s,env)
+ rec=recon.persist_upload(s,u,env,preview)
+ audit(s,u,'回传离线核对单 '+rec.sheet_code+('，冲突 %d 行'%preview['conflict_count'] if preview['conflict_count'] else ''))
+ return dump(rec)
+@router.get('/reconciliations/{i}')
+def recon_detail(i:int,u=Depends(current),s=Depends(db)):return dump(ensure.reconciliation(s,i))
+@router.post('/reconciliations/{i}/preview')
+def recon_preview(i:int,u=Depends(current),s=Depends(db)):
+ r=ensure.reconciliation(s,i)
+ if r.state=='applied':return dump(r)
+ preview=recon.merge_preview(s,r.sheet)
+ r.preview=preview;r.conflict_count=preview['conflict_count'];r.change_count=preview['change_count']
+ # 预览指纹：应用时据此判定预览后是否发生并发修订
+ r.preview_digest=preview['current_digest'];s.commit()
+ audit(s,u,'重新核对离线核对单 '+r.sheet_code)
+ return dump(r)
+@router.post('/reconciliations/{i}/apply')
+def recon_apply(i:int,u=Depends(editor),s=Depends(db)):
+ r=ensure.reconciliation(s,i)
+ r,idempotent=recon.apply_sheet(s,r,u)
+ if idempotent:audit(s,u,'重复应用已跳过 '+r.sheet_code)
+ return dump(r)

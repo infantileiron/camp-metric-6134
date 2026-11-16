@@ -15,3 +15,6 @@ class Snapshot(Base):
 class Audit(Base):
  __tablename__='audits'
  id=Column(Integer,primary_key=True);actor=Column(String(100));action=Column(String(200));created=Column(String(40))
+class Reconciliation(Base):
+ __tablename__='reconciliations'
+ id=Column(Integer,primary_key=True);sheet_code=Column(String(64),unique=True,nullable=False);state=Column(String(20),default='pending');exported_by=Column(String(100));exported_at=Column(String(40));applied_by=Column(String(100),default='');applied_at=Column(String(40),default='');basis_digest=Column(String(128));preview_digest=Column(String(128),default='');sheet=Column(JSON,nullable=False);preview=Column(JSON,nullable=True);conflict_count=Column(Integer,default=0);change_count=Column(Integer,default=0)

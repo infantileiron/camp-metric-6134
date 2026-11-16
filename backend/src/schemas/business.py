@@ -38,3 +38,20 @@ class RunInput(BaseModel):
   if self.date_from>self.date_to:raise ValueError('开始日不得晚于结束日')
   return self
 class NoteInput(BaseModel):note:str=Field(min_length=8,max_length=2000)
+class ReconExportInput(BaseModel):
+ date_from:Optional[date]=None
+ date_to:Optional[date]=None
+ class_code:Optional[str]=Field(default=None,max_length=50)
+ @model_validator(mode='after')
+ def window(self):
+  if self.date_from and self.date_to and self.date_from>self.date_to:raise ValueError('开始日不得晚于结束日')
+  return self
+class ReconReturnRow(BaseModel):
+ class_code:str=Field(min_length=1,max_length=50)
+ day:date
+ mode:Literal['线上','线下']
+ enrolled:int=Field(ge=0,le=1000000)
+ attended:int=Field(ge=0,le=1000000)
+ completed:int=Field(ge=0,le=1000000)
+ refunds:int=Field(ge=0,le=1000000)
+ note:str=Field(default='',max_length=1000)

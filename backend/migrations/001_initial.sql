@@ -169,6 +169,47 @@ ALTER SEQUENCE public.snapshots_id_seq OWNED BY public.snapshots.id;
 
 
 --
+-- Name: reconciliations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reconciliations (
+    id integer NOT NULL,
+    sheet_code character varying(64) NOT NULL,
+    state character varying(20),
+    exported_by character varying(100),
+    exported_at character varying(40),
+    applied_by character varying(100),
+    applied_at character varying(40),
+    basis_digest character varying(128),
+    preview_digest character varying(128),
+    sheet json NOT NULL,
+    preview json,
+    conflict_count integer,
+    change_count integer
+);
+
+
+--
+-- Name: reconciliations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.reconciliations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: reconciliations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.reconciliations_id_seq OWNED BY public.reconciliations.id;
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -198,6 +239,13 @@ CREATE SEQUENCE public.users_id_seq
 --
 
 ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
+
+
+--
+-- Name: reconciliations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reconciliations ALTER COLUMN id SET DEFAULT nextval('public.reconciliations_id_seq'::regclass);
 
 
 --
@@ -281,6 +329,22 @@ ALTER TABLE ONLY public.metrics
 
 ALTER TABLE ONLY public.snapshots
     ADD CONSTRAINT snapshots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reconciliations reconciliations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reconciliations
+    ADD CONSTRAINT reconciliations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reconciliations reconciliations_sheet_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reconciliations
+    ADD CONSTRAINT reconciliations_sheet_code_key UNIQUE (sheet_code);
 
 
 --
